@@ -201,29 +201,33 @@ int SaveGame(const std::string& filename, const ServerSaveGameData& server_save_
                     save_preview_data.SetBinary(false);
                     save_preview_data.save_format_marker = XML_COMPRESSED_BASE64_MARKER;
 
-                    // allocate buffers for serialized gamestate
                     DebugLogger() << "Allocating buffers for XML serialization...";
-                    std::string serial_str, compressed_str;
-                    try {
-                        DebugLogger() << "String Max Size: " << serial_str.max_size();
-                        const std::string::size_type capacity = std::min(serial_str.max_size(), Pow(2,29)-12); // I read on StackOverflow that Qt grows string capacity to slightly less than powers of two due to some allocators perform worse at exact powers of 2
-                        DebugLogger() << "Reserving Capacity:: " << capacity;
-                        serial_str.reserve(capacity);
-                        compressed_str.reserve(Pow(2,26)-12);
-                    }
-                    catch (...) {
-                        DebugLogger() << "Unable to preallocate full serialization buffers. Attempting serialization with dynamic buffer allocation.";
-                    }
+                    //std::string compressed_str;
+                    //try {
+                    //    compressed_str.reserve(Pow(2,26)-12);
+                    //} catch (...) {
+                    //    DebugLogger() << "Unable to preallocate full serialization buffers. Attempting serialization with dynamic buffer allocation.";
+                    //}
+                    //// wrap buffer string in iostream::stream to receive serialized data
+                    //using InsertDevice = boost::iostreams::back_insert_device<std::string>;
+                    //InsertDevice serial_inserter(compressed_str);
+                    //boost::iostreams::stream<InsertDevice> c_sink(serial_inserter);
 
-                    // wrap buffer string in iostream::stream to receive serialized data
-                    typedef boost::iostreams::back_insert_device<std::string> InsertDevice;
-                    InsertDevice serial_inserter(serial_str);
-                    boost::iostreams::stream<InsertDevice> s_sink(serial_inserter);
+                    // set up compression-filter
+                    std::ostringstream compressed_os;
+                    boost::iostreams::filtering_ostream zos;
+                    //boost::iostreams::filtering_ostreambuf zos;
+                    zos.push(boost::iostreams::zlib_compressor(boost::iostreams::zlib_params(
+                        boost::iostreams::zlib::default_compression)));
+                    zos.push(boost::iostreams::base64_encoder());
+                    zos.push(compressed_os);
+                    //zos.push(c_sink);
+                    //std::ostream os(&zos);
 
                     timer.EnterSection("universe to xml");
                     {
                         // create archive with (preallocated) buffer...
-                        freeorion_xml_oarchive xoa(s_sink);
+                        freeorion_xml_oarchive xoa(zos);
                         // serialize main gamestate info
                         timer.EnterSection("player data to xml");
                         xoa << BOOST_SERIALIZATION_NVP(player_save_game_data);
@@ -238,28 +242,10 @@ int SaveGame(const std::string& filename, const ServerSaveGameData& server_save_
                         timer.EnterSection("");
                     }
 
-                    s_sink.flush();
-
-                    timer.EnterSection("compression");
-                    // wrap gamestate string in iostream::stream to extract serialized data
-                    typedef boost::iostreams::basic_array_source<char> SourceDevice;
-                    SourceDevice source(serial_str.data(), serial_str.size());
-                    boost::iostreams::stream<SourceDevice> s_source(source);
-
-                    // wrap compresed buffer string in iostream::streams to receive compressed string
-                    InsertDevice compressed_inserter(compressed_str);
-                    boost::iostreams::stream<InsertDevice> c_sink(compressed_inserter);
-
-                    // compression-filter gamestate into compressed string
-                    boost::iostreams::filtering_ostreambuf o;
-                    o.push(boost::iostreams::zlib_compressor());
-                    o.push(boost::iostreams::base64_encoder());
-                    o.push(c_sink);
-                    boost::iostreams::copy(s_source, o);
-                    c_sink.flush();
-
-                    save_preview_data.uncompressed_text_size = serial_str.size();
-                    save_preview_data.compressed_text_size = compressed_str.size();
+                    if (!zos.strict_sync())
+                        zos.reset();
+                    //DebugLogger() << "compressed string sz: " << compressed_str.size() << " :" << compressed_str;
+                    //save_preview_data.compressed_text_size = compressed_str.size();
 
                     timer.EnterSection("headers to xml");
                     // write to save file: uncompressed header serialized data, with compressed main archive string at end...
@@ -271,7 +257,9 @@ int SaveGame(const std::string& filename, const ServerSaveGameData& server_save_
                     xoa2 << BOOST_SERIALIZATION_NVP(player_save_header_data);
                     xoa2 << BOOST_SERIALIZATION_NVP(empire_save_game_data);
                     // append compressed gamestate info
-                    xoa2 << BOOST_SERIALIZATION_NVP(compressed_str);
+                    timer.EnterSection("universe to xml");
+                    xoa2 << boost::serialization::make_nvp("compressed_str", compressed_os.str());
+                    //xoa2 << BOOST_SERIALIZATION_NVP(compressed_str);
 
                     timer.EnterSection("");
                     save_completed_as_xml = true;
