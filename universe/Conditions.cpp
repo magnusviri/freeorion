@@ -114,10 +114,16 @@ namespace {
         auto& from_set = domain_matches ? matches : non_matches;
         auto& to_set = domain_matches ? non_matches : matches;
 
-        auto part_it = std::stable_partition(from_set.begin(), from_set.end(),
-                                             [pred, domain_matches](const auto* o) { return pred(o) == domain_matches; });
-        to_set.insert(to_set.end(), part_it, from_set.end());
-        from_set.erase(part_it, from_set.end());
+        auto from_it = from_set.begin();
+        auto dest = std::back_inserter(to_set);
+        for (; from_it != from_set.end();) {
+            if (pred(*from_it) != domain_matches) {
+                *dest++ = std::exchange(*from_it, from_set.back());
+                from_set.pop_back();
+            } else {
+                ++from_it;
+            }
+        }
     }
 
     [[nodiscard]] std::vector<const Condition::Condition*> FlattenAndNestedConditions(
