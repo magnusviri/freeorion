@@ -98,11 +98,85 @@ public:
     bool check_if_any(const Pred pred) const
     {
         using DecayT = std::decay_t<T>;
-        if constexpr (std::is_convertible_v<std::decay_t<Pred>, UniverseObjectVisitor>) {
+        using DecayPred = std::decay_t<Pred>;
+        using ContainerT = std::decay_t<decltype(Map<DecayT>())>;
+        using EntryT = typename ContainerT::value_type;
+        static_assert(std::is_same_v<std::pair<const int, std::shared_ptr<DecayT>>, EntryT>);
+        using ConstEntryT = std::pair<const int, std::shared_ptr<const DecayT>>;
+        static_assert(std::is_convertible_v<EntryT, ConstEntryT>);
+
+
+        static constexpr bool is_visitor = std::is_convertible_v<DecayPred, UniverseObjectVisitor>;
+
+
+        static constexpr bool invokable_on_raw_const_object =
+            std::is_invocable_r_v<bool, DecayPred, const DecayT*>;
+        static constexpr bool invokable_on_raw_mutable_object =
+            std::is_invocable_r_v<bool, DecayPred, DecayT*>;
+        static_assert(invokable_on_raw_const_object ||
+                        (!invokable_on_raw_const_object && !invokable_on_raw_mutable_object),
+                      "predicate may not modify ObjectMap contents");
+
+
+        static_assert(std::is_convertible_v<std::shared_ptr<DecayT>, std::shared_ptr<const DecayT>>);
+
+        static constexpr bool invokable_on_shared_const_object =
+            std::is_invocable_r_v<bool, DecayPred, const std::shared_ptr<const DecayT>&>;
+        static constexpr bool invokable_on_shared_mutable_object =
+            std::is_invocable_r_v<bool, DecayPred, const std::shared_ptr<DecayT>&>;
+        static_assert(invokable_on_shared_const_object ||
+                        (!invokable_on_shared_const_object && !invokable_on_shared_mutable_object),
+                      "predicate may not modify ObjectMap contents");
+
+
+        static constexpr bool invokable_on_const_entry =
+            std::is_invocable_r_v<bool, DecayPred, const ConstEntryT&>;
+        static constexpr bool invokable_on_mutable_entry =
+            std::is_invocable_r_v<bool, DecayPred, const EntryT&>;
+        static_assert(invokable_on_const_entry ||
+                        (!invokable_on_const_entry && !invokable_on_mutable_entry),
+                      "predicate may not modify ObjectMap contents");
+
+
+        static constexpr bool invokable_on_const_reference =
+            std::is_invocable_r_v<bool, DecayPred, const DecayT&>;
+        static constexpr bool invokable_on_mutable_reference =
+            std::is_invocable_r_v<bool, DecayPred, DecayT&>;
+        static_assert(invokable_on_const_reference ||
+                      (!invokable_on_const_reference && !invokable_on_mutable_reference),
+                      "predicate may not modify ObjectMap contents");
+
+
+        static constexpr bool invokable =
+            invokable_on_raw_const_object || invokable_on_raw_mutable_object ||
+            invokable_on_shared_const_object || invokable_on_shared_mutable_object ||
+            invokable_on_const_entry || invokable_on_mutable_entry ||
+            invokable_on_const_reference || invokable_on_mutable_reference;
+
+
+        if constexpr (is_visitor) {
             return std::any_of(Map<DecayT>().begin(), Map<DecayT>().end(),
-                               [visitor{pred}](const auto& entry) { return entry.second->Accept(visitor); });
+                               [visitor{pred}](const EntryT& o) { return o.second->Accept(visitor); });
+
+        } else if constexpr (invokable_on_raw_const_object) {
+            return std::any_of(Map<DecayT>().begin(), Map<DecayT>().end(),
+                               [obj_pred{pred}](const EntryT& o) { return obj_pred(o.second.get()); });
+
+        } else if constexpr (invokable_on_shared_const_object) {
+            return std::any_of(Map<DecayT>().begin(), Map<DecayT>().end(),
+                               [obj_pred{pred}](const EntryT& o) { return obj_pred(o.second); });
+
+        } else if constexpr (invokable_on_const_entry) {
+            return std::any_of(Map<DecayT>().begin(), Map<DecayT>().end(),
+                               [entry_pred{pred}](const EntryT& o) { return entry_pred(o); });
+
+        } else if constexpr (invokable_on_const_reference) {
+            return std::any_of(Map<DecayT>().begin(), Map<DecayT>().end(),
+                               [ref_pred{pred}](const EntryT& o) { return ref_pred(*o.second); });
+
         } else {
-            return std::any_of(Map<DecayT>().begin(), Map<DecayT>().end(), pred);
+            static_assert(invokable, "Don't know how to handle predicate");
+            return false;
         }
     }
 
@@ -272,8 +346,6 @@ public:
     /** Empties map, removing shared ownership by this map of all
       * previously contained objects. */
     void clear();
-    ///** Swaps the contents of *this with \a rhs. */
-    //void swap(ObjectMap& rhs);
 
     /** */
     void UpdateCurrentDestroyedObjects(const std::unordered_set<int>& destroyed_object_ids);

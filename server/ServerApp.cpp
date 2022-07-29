@@ -2225,17 +2225,42 @@ namespace {
     bool EmpireEliminated(int empire_id, const ObjectMap& objects) {
         // are there any populated planets? if so, not eliminated
         // are there any ships? if so, not eliminated
-        return !objects.check_if_any<Planet>([empire_id](const auto& p)
-                                             { return p.second->OwnedBy(empire_id) && p.second->Populated(); })
-            && !objects.check_if_any<Ship>([empire_id](const auto& s)
-                                           { return s.second->OwnedBy(empire_id); });
+        return !objects.check_if_any<Planet>([empire_id](const auto* p)
+                                             { return p->OwnedBy(empire_id) && p->Populated(); })
+            && !objects.check_if_any<Ship>([empire_id](const auto* s)
+                                           { return s->OwnedBy(empire_id); })
+            // Following are test cases for check_if_any<...>(...)
+            //&& !objects.check_if_any<Ship>(OwnedVisitor(empire_id))
+            //&& !objects.check_if_any<Ship>([empire_id](std::pair<const int, std::shared_ptr<Ship>> s)
+            //                               { return s.second->OwnedBy(empire_id); })
+            //&& !objects.check_if_any<Ship>([empire_id](std::pair<const int, std::shared_ptr<const Ship>> s)
+            //                               { return s.second->OwnedBy(empire_id); })
+            //&& !objects.check_if_any<Ship>([empire_id](std::shared_ptr<Ship> s)
+            //                               { return s->OwnedBy(empire_id); })
+            //&& !objects.check_if_any<Ship>([empire_id](std::shared_ptr<const Ship> s)
+            //                               { return s->OwnedBy(empire_id); })
+            //&& !objects.check_if_any<Ship>([empire_id](const std::shared_ptr<Ship>& s)
+            //                               { return s->OwnedBy(empire_id); })
+            //&& !objects.check_if_any<Ship>([empire_id](const std::shared_ptr<const Ship>& s)
+            //                               { return s->OwnedBy(empire_id); })
+            //&& !objects.check_if_any<Ship>([empire_id](Ship* s)
+            //                               { return s->OwnedBy(empire_id); })
+            //&& !objects.check_if_any<Ship>([empire_id](const Ship* s)
+            //                               { return s->OwnedBy(empire_id); })
+            //&& !objects.check_if_any<Ship>([empire_id](Ship& s)
+            //                               { return s.OwnedBy(empire_id); })
+            //&& !objects.check_if_any<Ship>([empire_id](const Ship& s)
+            //                               { return s.OwnedBy(empire_id); })
+            //&& !objects.check_if_any<Ship>([empire_id](int x)
+            //                               { return x == empire_id; })
+            ;
     }
 
     void GetEmpireFleetsAtSystem(std::map<int, std::set<int>>& empire_fleets, int system_id,
                                  const ObjectMap& objects)
     {
         empire_fleets.clear();
-        auto system = objects.get<System>(system_id);
+        auto* system = objects.getRaw<System>(system_id);
         if (!system)
             return;
         for (auto* fleet : objects.findRaw<const Fleet>(system->FleetIDs()))
