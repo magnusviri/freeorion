@@ -93,9 +93,18 @@ public:
     template <typename T = UniverseObject>
     int count(const UniverseObjectVisitor& visitor) const;
 
-    /** Returns true iff any object matches \a visitor */
-    template <typename T = UniverseObject>
-    bool check_if_any(const UniverseObjectVisitor& visitor) const;
+    /** Returns true iff any object matches \a pred when applied as a visitor or predicate filter */
+    template <typename T = UniverseObject, typename Pred>
+    bool check_if_any(const Pred pred) const
+    {
+        using DecayT = std::decay_t<T>;
+        if constexpr (std::is_convertible_v<std::decay_t<Pred>, UniverseObjectVisitor>) {
+            return std::any_of(Map<DecayT>().begin(), Map<DecayT>().end(),
+                               [visitor{pred}](const auto& entry) { return entry.second->Accept(visitor); });
+        } else {
+            return std::any_of(Map<DecayT>().begin(), Map<DecayT>().end(), pred);
+        }
+    }
 
     /** Returns all the objects of type T */
     template <typename T = UniverseObject>
@@ -510,15 +519,6 @@ int ObjectMap::count(const UniverseObjectVisitor& visitor) const
     typedef typename std::remove_const_t<T> mutableT;
     return std::count_if(Map<mutableT>(),
                          [&visitor](const auto& entry) { return entry.second->Accept(visitor); });
-}
-
-/** Returns true iff no objects match \a visitor */
-template <typename T>
-bool ObjectMap::check_if_any(const UniverseObjectVisitor& visitor) const
-{
-    typedef typename std::remove_const_t<T> mutableT;
-    return std::any_of(Map<mutableT>().begin(), Map<mutableT>().end(),
-                       [&visitor](const auto& entry) { return entry.second->Accept(visitor); });
 }
 
 template <typename T>
